@@ -79,24 +79,32 @@ def parse_equipment_efficiency(eff_str: str) -> List[Tuple[str, float]]:
     """
     Parse equipment efficiency string like:
     '精密灌装机200m³/h和自动化输送臂250m³/h'
-    or
     'Precision Filling Machine 200m³/h and Automated Conveying Arm 250m³/h'
+    'Industrial Cleaning Machine250m³/h'
 
     Returns:
         List of (equipment_type_string, efficiency) tuples
     """
+    # Split by various delimiters: '和', 'and', or just use the pattern
+    # Try splitting by '和' or 'and' first (with or without spaces)
     parts = re.split(r'\s+和\s+|\s+and\s+', eff_str)
+
+    if len(parts) == 1:
+        # Maybe no spaces around delimiter
+        parts = re.split(r'和|and', eff_str)
 
     results = []
     for part in parts:
         part = part.strip()
-        match = re.match(r'^(.+?)\s*(\d+(?:\.\d+)?)\s*m³/?h$', part)
-        if not match:
-            raise ValueError(f"Cannot parse efficiency string: '{part}'")
+        # Match equipment name + number + m³/h
+        match = re.match(r'^(.+?)\s*(\d+(?:\.\d+)?)\s*m³/?h', part)
+        if match:
+            equip_type = match.group(1).strip()
+            efficiency = float(match.group(2))
+            results.append((equip_type, efficiency))
 
-        equip_type = match.group(1).strip()
-        efficiency = float(match.group(2))
-        results.append((equip_type, efficiency))
+    if not results:
+        raise ValueError(f"Cannot parse efficiency string: '{eff_str}'")
 
     return results
 

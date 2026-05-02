@@ -28,33 +28,51 @@ class Preprocessor:
         self._build_equipment_mappings()
 
     def _expand_c_workshop_processes(self):
-        """Expand C3, C4, C5 to be repeated 3 times each."""
+        """
+        Expand C3, C4, C5 to be repeated 3 times each.
+
+        The order within C workshop follows round-robin across repeat indices:
+        C1, C2, C3_1, C4_1, C5_1, C3_2, C4_2, C5_2, C3_3, C4_3, C5_3
+        """
         expanded = []
 
-        for process in self.processes:
-            # Check if this is C3, C4, or C5
-            match = re.match(r'^C([345])', process.process_id)
-            if match and process.workshop == 'C':
-                # This is C3, C4, or C5 - expand it 3 times
-                for rep in range(1, C_WORKSHOP_REPEAT_TIMES + 1):
-                    expanded_process = Process(
-                        workshop=process.workshop,
-                        process_id=process.process_id,
-                        expanded_id=f"C{match.group(1)}_{rep}",
-                        original_id=process.process_id,
-                        requirements=process.requirements,
-                        workload=process.workload,
-                        note=process.note,
-                        repeat_index=rep
-                    )
-                    expanded.append(expanded_process)
-            else:
-                expanded.append(process)
+        # Separate processes
+        c_workshop_procs = [p for p in self.processes if p.workshop == 'C']
+        c_non_repeat = [p for p in c_workshop_procs if p.process_id not in C_WORKSHOP_REPEAT_PROCESSES]
+        c_repeat_procs = [p for p in c_workshop_procs if p.process_id in C_WORKSHOP_REPEAT_PROCESSES]
+
+        # Non-C processes
+        non_c_procs = [p for p in self.processes if p.workshop != 'C']
+        expanded.extend(non_c_procs)
+
+        # Append C1, C2 first
+        expanded.extend(c_non_repeat)
+
+        # Round-robin for C3, C4, C5
+        for rep in range(1, C_WORKSHOP_REPEAT_TIMES + 1):
+            for proc_id in ['C3', 'C4', 'C5']:
+                for p in c_repeat_procs:
+                    if p.process_id == proc_id:
+                        expanded_process = Process(
+                            workshop=p.workshop,
+                            process_id=p.process_id,
+                            expanded_id=f"{proc_id}_{rep}",
+                            original_id=p.process_id,
+                            requirements=p.requirements,
+                            workload=p.workload,
+                            note=p.note,
+                            repeat_index=rep
+                        )
+                        expanded.append(expanded_process)
+                        break
 
         self._expanded_processes = expanded
 
     def _build_precedence_edges(self):
-        """Build precedence edges within each workshop."""
+        """
+        Build precedence edges within each workshop.
+        Uses expanded_processes natural order (not sorted by process_id).
+        """
         edges = []
         workshop_processes = defaultdict(list)
 
@@ -62,21 +80,21 @@ class Preprocessor:
             workshop_processes[proc.workshop].append(proc)
 
         for workshop, procs in workshop_processes.items():
-            # Sort by process_id to get the execution order
-            # The order should follow A1, A2, A3... within each workshop
-            procs_sorted = sorted(procs, key=lambda p: p.process_id)
-
-            for i in range(len(procs_sorted) - 1):
+            # Use natural order from expanded_processes
+            for i in range(len(procs) - 1):
                 edges.append(ProcessEdge(
-                    from_process=procs_sorted[i].expanded_id,
-                    to_process=procs_sorted[i + 1].expanded_id,
+                    from_process=procs[i].expanded_id,
+                    to_process=procs[i + 1].expanded_id,
                     workshop=workshop
                 ))
 
         self._precedence_edges = edges
 
     def _build_process_order_map(self):
-        """Build a map of process order within each workshop."""
+        """
+        Build a map of process order within each workshop.
+        Uses expanded_processes natural order.
+        """
         order_map = defaultdict(list)
         workshop_processes = defaultdict(list)
 
@@ -84,8 +102,8 @@ class Preprocessor:
             workshop_processes[proc.workshop].append(proc)
 
         for workshop, procs in workshop_processes.items():
-            procs_sorted = sorted(procs, key=lambda p: p.process_id)
-            order_map[workshop] = [p.expanded_id for p in procs_sorted]
+            # Use natural order from expanded_processes
+            order_map[workshop] = [p.expanded_id for p in procs]
 
         self._process_order_within_workshop = order_map
 

@@ -9,6 +9,7 @@ from data_loader import DataLoader
 from preprocessing import Preprocessor
 from solver_p2 import solve_problem_2, validate_problem_2, export_q2_schedule
 from time_utils import format_seconds
+from collections import defaultdict
 
 
 def main():
@@ -30,9 +31,33 @@ def main():
     print(f"展开后工序数: {len(preprocessor.expanded_processes)}")
     print(f"班组1设备数: {len([e for e in preprocessor.equipment if e.crew == 1])}")
 
+    # Print C workshop expansion order
+    print("\nC车间展开顺序:")
+    c_procs = [p for p in preprocessor.expanded_processes if p.workshop == 'C']
+    print(f"  {' → '.join([p.expanded_id for p in c_procs])}")
+
+    # Print all workshop orders
+    print("\n各车间工序顺序:")
+    for ws in ['A', 'B', 'C', 'D', 'E']:
+        procs = preprocessor.process_order_within_workshop.get(ws, [])
+        print(f"  Workshop {ws}: {' → '.join(procs)}")
+
     # Solve Problem 2
     print("\n求解中...")
     result = solve_problem_2(preprocessor, distance_func=loader.get_distance)
+
+    # Build process-level times
+    process_times = defaultdict(lambda: {"start": float('inf'), "end": 0})
+    for op in result.operations:
+        pid = op.process.expanded_id
+        process_times[pid]["start"] = min(process_times[pid]["start"], op.start_time)
+        process_times[pid]["end"] = max(process_times[pid]["end"], op.end_time)
+
+    # Print each process aggregated start/end
+    print("\n各工序聚合后的 start/end:")
+    for pid in sorted(process_times.keys()):
+        info = process_times[pid]
+        print(f"  {pid}: start={info['start']}, end={info['end']}, duration={info['end']-info['start']}")
 
     print(f"\n结果:")
     print(f"  完成时间: {result.makespan} 秒")
@@ -46,14 +71,13 @@ def main():
         print("  ✓ 校验通过")
     else:
         print("  ✗ 校验失败:")
-        for err in errors[:10]:  # Show first 10 errors
+        for err in errors[:10]:
             print(f"    - {err}")
         if len(errors) > 10:
             print(f"    ... 还有 {len(errors) - 10} 个错误")
 
     # Print schedule by workshop
     print("\n作业排程 (按车间分组):")
-    from collections import defaultdict
     by_workshop = defaultdict(list)
     for op in result.operations:
         by_workshop[op.process.workshop].append(op)
