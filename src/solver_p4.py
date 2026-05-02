@@ -288,6 +288,7 @@ class CpModelBuilderV4:
             pid = proc.expanded_id
             for req in proc.requirements:
                 eq_type = req.equipment_type
+                speed = self.speed_by_type[eq_type]
 
                 for crew in [1, 2]:
                     for idx in range(self._max_potential.get(eq_type, {}).get(crew, 0)):
@@ -296,8 +297,7 @@ class CpModelBuilderV4:
                         start = self._pot_start[key]
                         workshop = proc.workshop
 
-                        transport = self.get_transport_time(crew, workshop,
-                            self.equipment[0].speed_mps if self.equipment else 1.0)
+                        transport = self.get_transport_time(crew, workshop, speed)
                         c = self.model.Add(start >= transport)
                         c.OnlyEnforceIf(sel)
 
@@ -613,6 +613,28 @@ def validate_problem_4(
             required = {req.equipment_type for req in proc.requirements}
             if assigned != required:
                 errors.append(f"Process {proc.expanded_id} missing types: {required - assigned}")
+
+    # 7. Initial transport: first operation of each equipment must respect crew -> workshop transport
+    from collections import defaultdict
+    by_eq = defaultdict(list)
+    for op in result.operations:
+        by_eq[op.equipment.equipment_id].append(op)
+
+    for eq_id, ops in by_eq.items():
+        first = sorted(ops, key=lambda x: x.start_time)[0]
+        crew_loc = f"Crew {first.equipment.crew}"
+        try:
+            required = calculate_transport_time(
+                distance_func(crew_loc, first.process.workshop),
+                first.equipment.speed_mps
+            )
+            if first.start_time < required:
+                errors.append(
+                    f"{eq_id}: first operation {first.process.expanded_id} starts at {first.start_time}, "
+                    f"but initial transport from {crew_loc} to {first.process.workshop} requires {required}"
+                )
+        except:
+            pass
 
     is_valid = len(errors) == 0
     return is_valid, errors

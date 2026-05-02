@@ -398,6 +398,28 @@ def validate_problem_3(result: ScheduleResult, preprocessor: Preprocessor, dista
             if assigned_types != required_types:
                 errors.append(f"Process {proc.expanded_id} missing equipment types: {required_types - assigned_types}")
 
+    # 7. Initial transport: first operation of each equipment must respect crew -> workshop transport
+    from collections import defaultdict
+    by_eq = defaultdict(list)
+    for op in result.operations:
+        by_eq[op.equipment.equipment_id].append(op)
+
+    for eq_id, ops in by_eq.items():
+        first = sorted(ops, key=lambda x: x.start_time)[0]
+        crew_loc = f"Crew {first.equipment.crew}"
+        try:
+            required = calculate_transport_time(
+                distance_func(crew_loc, first.process.workshop),
+                first.equipment.speed_mps
+            )
+            if first.start_time < required:
+                errors.append(
+                    f"{eq_id}: first operation {first.process.expanded_id} starts at {first.start_time}, "
+                    f"but initial transport from {crew_loc} to {first.process.workshop} requires {required}"
+                )
+        except:
+            pass
+
     is_valid = len(errors) == 0
     return is_valid, errors
 

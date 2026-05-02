@@ -1,42 +1,42 @@
 ﻿序号,设备编号,班组,起始时间,结束时间,持续工作时间(s),工序编号,车间,运输时间(s)
-1,Industrial Cleaning Machine1-1,1,230,10598,10368,C1,C,230
-2,Automated Conveying Arm1-2,1,230,10598,10368,C1,C,230
-3,Precision Filling Machine1-1,1,250,5650,5400,A1,A,200
-4,Automated Conveying Arm2-4,2,250,4570,4320,A1,A,250
-5,Industrial Cleaning Machine1-3,1,355,8995,8640,D1,D,355
-6,Precision Filling Machine1-2,1,8995,23395,14400,D2,D,355
-7,Automated Conveying Arm1-3,1,8995,18595,9600,D2,D,355
-8,Industrial Cleaning Machine1-3,1,9510,23910,14400,E1,E,200
-9,Precision Filling Machine1-1,1,10598,18004,7406,C2,C,230
-10,High-speed Polishing Machine2-1,2,11123,29123,18000,A2,A,250
-11,Industrial Cleaning Machine1-1,1,11123,18323,7200,A2,A,200
-12,Precision Filling Machine1-1,1,18004,24484,6480,C3_1,C,230
-13,Automated Conveying Arm1-1,1,18004,23188,5184,C3_1,C,230
-14,Industrial Cleaning Machine1-1,1,18833,23153,4320,B1,B,310
-15,Precision Filling Machine2-1,2,23395,28024,4629,D3,D,340
-16,Precision Filling Machine2-5,2,23910,30082,6172,E2,E,275
-17,High-speed Polishing Machine1-1,1,24484,36484,12000,C4_1,C,230
+1,Precision Filling Machine1-1,1,200,5600,5400,A1,A,200
+2,Automated Conveying Arm1-1,1,200,4520,4320,A1,A,200
+3,Industrial Cleaning Machine1-4,1,230,10598,10368,C1,C,230
+4,Automated Conveying Arm1-2,1,230,10598,10368,C1,C,230
+5,Industrial Cleaning Machine1-1,1,310,4630,4320,B1,B,310
+6,Industrial Cleaning Machine1-2,1,355,8995,8640,D1,D,355
+7,High-speed Polishing Machine2-1,2,5600,23600,18000,A2,A,250
+8,Industrial Cleaning Machine1-1,1,5600,12800,7200,A2,A,200
+9,Precision Filling Machine1-4,1,8995,23395,14400,D2,D,355
+10,Automated Conveying Arm1-3,1,8995,18595,9600,D2,D,355
+11,Precision Filling Machine1-1,1,10598,18004,7406,C2,C,230
+12,Precision Filling Machine1-2,1,11148,38148,27000,B2,B,310
+13,Automated Conveying Arm1-2,1,11148,29148,18000,B2,B,310
+14,Precision Filling Machine2-1,2,18004,24484,6480,C3_1,C,310
+15,Automated Conveying Arm1-1,1,18004,23188,5184,C3_1,C,230
+16,Precision Filling Machine1-5,1,23395,28024,4629,D3,D,355
+17,High-speed Polishing Machine2-1,2,24484,36484,12000,C4_1,C,310
 18,Industrial Cleaning Machine1-1,1,24484,38884,14400,C4_1,C,230
-19,Precision Filling Machine1-1,1,25034,52034,27000,B2,B,310
-20,Automated Conveying Arm1-1,1,25034,43034,18000,B2,B,310
-21,High-speed Polishing Machine2-1,2,29573,74573,45000,D4,D,340
-22,Automatic Sensing Multi-Function Machine2-1,2,29573,47573,18000,D4,D,340
-23,Automatic Sensing Multi-Function Machine1-1,1,30082,37282,7200,E3,E,200
-24,Industrial Cleaning Machine1-2,1,30082,51682,21600,E3,E,200
-25,Automatic Sensing Multi-Function Machine1-1,1,38884,53284,14400,C5_1,C,230
-26,Precision Filling Machine2-5,2,52034,55737,3703,B3,B,230
-27,Precision Filling Machine1-1,1,53284,59764,6480,C3_2,C,230
-28,Automated Conveying Arm1-1,1,53284,58468,5184,C3_2,C,230
-29,Automatic Sensing Multi-Function Machine1-1,1,53809,71809,18000,A3,A,200
-30,High-speed Polishing Machine1-1,1,59764,71764,12000,C4_2,C,230
-31,Industrial Cleaning Machine1-1,1,59764,74164,14400,C4_2,C,230
-32,Automatic Sensing Multi-Function Machine1-1,1,74164,88564,14400,C5_2,C,230
-33,Automatic Sensing Multi-Function Machine2-1,2,74573,92573,18000,D5,D,340
-34,Precision Filling Machine1-1,1,88564,95044,6480,C3_3,C,230
-35,Automated Conveying Arm1-1,1,88564,93748,5184,C3_3,C,230
-36,High-speed Polishing Machine2-1,2,92573,117773,25200,D6,D,340
-37,High-speed Polishing Machine1-1,1,95044,107044,12000,C4_3,C,230
-38,Industrial Cleaning Machine1-1,1,95044,109444,14400,C4_3,C,230
-39,High-speed Polishing Machine1-1,1,107594,118394,10800,B4,B,310
-40,Automatic Sensing Multi-Function Machine2-1,2,107594,120554,12960,B4,B,230
-41,Automatic Sensing Multi-Function Machine1-1,1,109444,123844,14400,C5_3,C,230
+19,High-speed Polishing Machine1-1,1,28024,73024,45000,D4,D,355
+20,Automatic Sensing Multi-Function Machine1-1,1,28024,46024,18000,D4,D,355
+21,Precision Filling Machine2-5,2,38148,41851,3703,B3,B,230
+22,Automatic Sensing Multi-Function Machine2-1,2,38884,53284,14400,C5_1,C,310
+23,Industrial Cleaning Machine1-1,1,39309,53709,14400,E1,E,200
+24,High-speed Polishing Machine2-1,2,46839,57639,10800,B4,B,230
+25,Automatic Sensing Multi-Function Machine1-1,1,46839,59799,12960,B4,B,310
+26,Precision Filling Machine1-1,1,53284,59764,6480,C3_2,C,230
+27,Automated Conveying Arm2-1,2,53284,58468,5184,C3_2,C,310
+28,Automatic Sensing Multi-Function Machine2-1,2,53809,71809,18000,A3,A,250
+29,High-speed Polishing Machine2-1,2,59764,71764,12000,C4_2,C,310
+30,Industrial Cleaning Machine1-3,1,59764,74164,14400,C4_2,C,230
+31,Precision Filling Machine1-1,1,60189,66361,6172,E2,E,200
+32,Automatic Sensing Multi-Function Machine1-1,1,73024,91024,18000,D5,D,355
+33,Automatic Sensing Multi-Function Machine2-1,2,74164,88564,14400,C5_2,C,310
+34,Precision Filling Machine2-2,2,88564,95044,6480,C3_3,C,310
+35,Automated Conveying Arm1-4,1,88564,93748,5184,C3_3,C,230
+36,High-speed Polishing Machine2-1,2,91024,116224,25200,D6,D,340
+37,Automatic Sensing Multi-Function Machine1-1,1,91539,98739,7200,E3,E,200
+38,Industrial Cleaning Machine1-3,1,91539,113139,21600,E3,E,200
+39,High-speed Polishing Machine1-1,1,95044,107044,12000,C4_3,C,230
+40,Industrial Cleaning Machine1-1,1,95044,109444,14400,C4_3,C,230
+41,Automatic Sensing Multi-Function Machine2-1,2,109444,123844,14400,C5_3,C,310
