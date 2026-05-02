@@ -183,6 +183,17 @@ class CpModelBuilderV4:
             if buy_var is not None:
                 self.model.Add(sel_var <= buy_var)
 
+        # 5b. If buy=1 then must be used at least once (no phantom purchases)
+        for (eq_type, crew, idx), buy_var in self._buy_vars.items():
+            uses = []
+            for proc in self.processes:
+                pid = proc.expanded_id
+                key = (pid, eq_type, crew, idx)
+                if key in self._pot_select:
+                    uses.append(self._pot_select[key])
+            if uses:
+                self.model.Add(buy_var <= sum(uses))
+
         # 6. Selected real equipment: start = proc_start, end = start + proc_time
         #    Unselected real equipment: start = 0, end = 0
         for proc in self.processes:
