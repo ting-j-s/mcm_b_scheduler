@@ -19,7 +19,7 @@ class CpModelBuilderV2:
 
     All workshops (A-E), only crew 1 equipment.
     Same workshop processes must be sequential.
-    Equipment transport times explicitly modeled via optional intervals.
+    Equipment transport times explicitly modeled with disjunctive constraints.
     """
 
     def __init__(
@@ -46,24 +46,12 @@ class CpModelBuilderV2:
 
         self.model: Optional[CpModel] = None
 
-        # (pid, equipment_id) -> BoolVar selector
         self._select_vars: Dict[Tuple[str, str], any] = {}
-
-        # (pid, equipment_id) -> IntVar start
         self._start_vars: Dict[Tuple[str, str], any] = {}
-
-        # (pid, equipment_id) -> IntVar end
         self._end_vars: Dict[Tuple[str, str], any] = {}
-
-        # pid -> IntVar (process start, shared across equipment for same process)
         self._proc_start: Dict[str, any] = {}
-
-        # pid -> IntVar (max of selected equipment ends)
         self._proc_end: Dict[str, any] = {}
-
-        # (pid, equipment_id) -> IntervalVar
         self._intervals: Dict[Tuple[str, str], any] = {}
-
         self._makespan: any = None
 
         self.crew_location = f"Crew {self.crew}"
@@ -81,14 +69,13 @@ class CpModelBuilderV2:
         self.model = CpModel()
         max_time = 500000
 
-        # 1. Create process start/end variables
+        # 1. Process start/end variables
         for proc in self.processes:
             pid = proc.expanded_id
             self._proc_start[pid] = self.model.NewIntVar(0, max_time, f'start_{pid}')
             self._proc_end[pid] = self.model.NewIntVar(0, max_time, f'end_{pid}')
 
-        # 2. For each process and each required equipment type,
-        # create selector + optional interval (start, duration, end, selector)
+        # 2. Equipment selector + interval for each (process, equipment) pair
         for proc in self.processes:
             pid = proc.expanded_id
             for req in proc.requirements:
@@ -108,8 +95,6 @@ class CpModelBuilderV2:
                     self._start_vars[(pid, eq.equipment_id)] = start
                     self._end_vars[(pid, eq.equipment_id)] = end
 
-                    # Optional interval: when sel=1, start/end define active interval
-                    # when sel=0, interval is inactive (start=end=0 by CP-SAT semantics)
                     interval = self.model.NewOptionalIntervalVar(
                         start, proc_time, end, sel,
                         f'interval_{pid}_{eq.equipment_id}'
@@ -125,8 +110,32 @@ class CpModelBuilderV2:
                 selectors = [self._select_vars[(pid, eq.equipment_id)] for eq in available_eq]
                 self.model.Add(sum(selectors) == 1)
 
-        # 4. Process start = min of selected equipment starts
-        # Process end = max of selected equipment ends
+        # 4. Selected equipment: start = proc_start, end = start + proc_time
+        #    Unselected equipment: start = 0, end = 0
+        for proc in self.processes:
+            pid = proc.expanded_id
+            for req in proc.requirements:
+                eq_type = req.equipment_type
+                available_eq = self.equipment_by_type.get(eq_type, [])
+                proc_time = calculate_processing_time(proc.workload, req.efficiency)
+
+                for eq in available_eq:
+                    sel = self._select_vars[(pid, eq.equipment_id)]
+                    start = self._start_vars[(pid, eq.equipment_id)]
+                    end = self._end_vars[(pid, eq.equipment_id)]
+
+                    c1 = self.model.Add(start == self._proc_start[pid])
+                    c1.OnlyEnforceIf(sel)
+                    c2 = self.model.Add(end == start + proc_time)
+                    c2.OnlyEnforceIf(sel)
+
+                    c3 = self.model.Add(start == 0)
+                    c3.OnlyEnforceIf(sel.Not())
+                    c4 = self.model.Add(end == 0)
+                    c4.OnlyEnforceIf(sel.Not())
+
+        # 5. Process end = max of selected equipment ends
+        #    Process start = min of selected equipment starts
         for proc in self.processes:
             pid = proc.expanded_id
             equip_starts = []
@@ -143,7 +152,7 @@ class CpModelBuilderV2:
             if equip_ends:
                 self.model.AddMaxEquality(self._proc_end[pid], equip_ends)
 
-        # 5. Initial transport: first operation of each equipment starts at crew location
+        # 6. Initial transport: equipment starts at crew location
         for eq in self.equipment:
             for proc in self.processes:
                 pid = proc.expanded_id
@@ -157,29 +166,35 @@ class CpModelBuilderV2:
 
                 transport = self.get_transport_time(self.crew_location, workshop, eq.speed_mps)
 
-                # start >= transport_time (only when selected)
                 c = self.model.Add(start >= transport)
                 c.OnlyEnforceIf(sel)
 
-        # 6. Transport time between consecutive operations on same equipment
+        # 7. Disjunctive transport constraints for each pair of operations on same equipment
+        #    For each equipment eq, for each pair of candidate processes (pid_i, pid_j):
+        #    if both selected, then either i before j OR j before i
         for eq in self.equipment:
-            for ws in self.workshops:
-                ws_order = self.process_order.get(ws, [])
-                for i in range(len(ws_order) - 1):
-                    pid_i = ws_order[i]
-                    pid_j = ws_order[i + 1]
+            # Get all processes that can use this equipment
+            eq_candidates = []
+            for proc in self.processes:
+                pid = proc.expanded_id
+                key = (pid, eq.equipment_id)
+                if key in self._select_vars:
+                    eq_candidates.append(pid)
 
-                    if (pid_i, eq.equipment_id) not in self._select_vars:
-                        continue
-                    if (pid_j, eq.equipment_id) not in self._select_vars:
-                        continue
+            # For each pair, add disjunctive ordering
+            for i in range(len(eq_candidates)):
+                for j in range(i + 1, len(eq_candidates)):
+                    pid_i = eq_candidates[i]
+                    pid_j = eq_candidates[j]
 
                     sel_i = self._select_vars[(pid_i, eq.equipment_id)]
                     sel_j = self._select_vars[(pid_j, eq.equipment_id)]
-                    start_j = self._start_vars[(pid_j, eq.equipment_id)]
+                    start_i = self._start_vars[(pid_i, eq.equipment_id)]
                     end_i = self._end_vars[(pid_i, eq.equipment_id)]
+                    start_j = self._start_vars[(pid_j, eq.equipment_id)]
+                    end_j = self._end_vars[(pid_j, eq.equipment_id)]
 
-                    # Get workshops for both
+                    # Get workshops
                     ws_i = None
                     ws_j = None
                     for p in self.processes:
@@ -188,14 +203,31 @@ class CpModelBuilderV2:
                         if p.expanded_id == pid_j:
                             ws_j = p.workshop
 
-                    transport = self.get_transport_time(ws_i, ws_j, eq.speed_mps)
+                    travel_ij = self.get_transport_time(ws_i, ws_j, eq.speed_mps)
+                    travel_ji = self.get_transport_time(ws_j, ws_i, eq.speed_mps)
 
-                    # start_j >= end_i + transport when both selected
-                    c = self.model.Add(start_j >= end_i + transport)
-                    c.OnlyEnforceIf(sel_i)
-                    c.OnlyEnforceIf(sel_j)
+                    # BoolVar: 1 = i before j, 0 = j before i
+                    i_before_j = self.model.NewBoolVar(f'i_before_j_{pid_i}_{pid_j}_{eq.equipment_id}')
 
-        # 7. Precedence constraints within each workshop (process-level)
+                    # i before j: start_j >= end_i + travel_ij
+                    # j before i: start_i >= end_j + travel_ji
+
+                    # Constraint: start_j >= end_i + travel_ij + M*(1 - i_before_j)
+                    # where M is large enough to make the constraint irrelevant when i_before_j=0
+                    # OR use OnlyEnforceIf
+
+                    c_ij = self.model.Add(start_j >= end_i + travel_ij)
+                    c_ij.OnlyEnforceIf(i_before_j)
+                    c_ji = self.model.Add(start_i >= end_j + travel_ji)
+                    c_ji.OnlyEnforceIf(i_before_j.Not())
+
+                    # Both i_before_j and its negation are enforced only when both selected
+                    c_ij.OnlyEnforceIf(sel_i)
+                    c_ij.OnlyEnforceIf(sel_j)
+                    c_ji.OnlyEnforceIf(sel_i)
+                    c_ji.OnlyEnforceIf(sel_j)
+
+        # 8. Within-workshop precedence at process level
         for ws in self.workshops:
             ws_procs = self.process_order.get(ws, [])
             for i in range(len(ws_procs) - 1):
@@ -203,7 +235,7 @@ class CpModelBuilderV2:
                 next_pid = ws_procs[i + 1]
                 self.model.Add(self._proc_end[curr_pid] <= self._proc_start[next_pid])
 
-        # 8. No overlap per equipment (using optional intervals)
+        # 9. No overlap per equipment (optional intervals)
         for eq_type, eq_list in self.equipment_by_type.items():
             for eq in eq_list:
                 intervals = []
@@ -216,7 +248,7 @@ class CpModelBuilderV2:
                 if len(intervals) > 1:
                     self.model.AddNoOverlap(intervals)
 
-        # 9. Objective: minimize makespan
+        # 10. Objective
         all_ends = [self._proc_end[proc.expanded_id] for proc in self.processes]
         self._makespan = self.model.NewIntVar(0, max_time, 'makespan')
         self.model.AddMaxEquality(self._makespan, all_ends)
@@ -246,7 +278,6 @@ class CpModelBuilderV2:
                         start = solver.Value(self._start_vars[key]) if solver else self._start_vars[key].Value()
                         end = solver.Value(self._end_vars[key]) if solver else self._end_vars[key].Value()
 
-                        # Compute transport time (initial transport from crew)
                         crew_loc = self.crew_location
                         try:
                             dist = self.distance_func(crew_loc, proc.workshop)
@@ -292,8 +323,8 @@ def solve_problem_2(preprocessor: Preprocessor, distance_func=None) -> ScheduleR
     return result
 
 
-def validate_problem_2(result: ScheduleResult, preprocessor: Preprocessor) -> Tuple[bool, List[str]]:
-    """Validate Problem 2 solution using process-level aggregation."""
+def validate_problem_2(result: ScheduleResult, preprocessor: Preprocessor, distance_func=None) -> Tuple[bool, List[str]]:
+    """Validate Problem 2 solution with transport time checks."""
     from collections import defaultdict
 
     # 1. Build process-level start/end times
@@ -305,22 +336,20 @@ def validate_problem_2(result: ScheduleResult, preprocessor: Preprocessor) -> Tu
         process_times[pid]["end"] = max(process_times[pid]["end"], op.end_time)
         process_times[pid]["ops"].append(op)
 
-    # 2. Check within-workshop precedence
     errors = []
     process_order = preprocessor.process_order_within_workshop
 
+    # 2. Within-workshop precedence
     for ws, procs in process_order.items():
         for i in range(len(procs) - 1):
             curr = procs[i]
             next_proc = procs[i + 1]
-
             curr_end = process_times[curr]["end"]
             next_start = process_times[next_proc]["start"]
-
             if next_start < curr_end:
                 errors.append(f"Workshop {ws}: {curr} ends at {curr_end} but {next_proc} starts at {next_start}")
 
-    # 3. Check equipment no overlap
+    # 3. Equipment no overlap with transport
     equip_ops: Dict[str, List[ScheduledOperation]] = defaultdict(list)
     for op in result.operations:
         equip_ops[op.equipment.equipment_id].append(op)
@@ -330,22 +359,39 @@ def validate_problem_2(result: ScheduleResult, preprocessor: Preprocessor) -> Tu
         for i in range(len(ops_sorted) - 1):
             curr = ops_sorted[i]
             next_op = ops_sorted[i + 1]
-            if next_op.start_time < curr.end_time - 1:
-                errors.append(f"Equipment {eq_id}: overlap - {curr.process.expanded_id} ends at {curr.end_time} but {next_op.process.expanded_id} starts at {next_op.start_time}")
 
-    # 4. Check all processes are scheduled
+            # Expected: next.start >= curr.end + travel(curr.workshop, next.workshop, equipment)
+            if distance_func:
+                travel = calculate_transport_time(
+                    distance_func(curr.process.workshop, next_op.process.workshop),
+                    curr.equipment.speed_mps
+                )
+                expected = curr.end_time + travel
+                if next_op.start_time < expected - 1:
+                    errors.append(
+                        f"Equipment {eq_id}: {curr.process.expanded_id} ends at {curr.end_time} "
+                        f"+ travel {travel} = {expected}, but {next_op.process.expanded_id} starts at {next_op.start_time}"
+                    )
+            else:
+                if next_op.start_time < curr.end_time - 1:
+                    errors.append(
+                        f"Equipment {eq_id}: overlap - {curr.process.expanded_id} ends at {curr.end_time} "
+                        f"but {next_op.process.expanded_id} starts at {next_op.start_time}"
+                    )
+
+    # 4. All processes scheduled
     scheduled_procs = {op.process.expanded_id for op in result.operations}
     all_procs = {p.expanded_id for p in preprocessor.expanded_processes}
     missing = all_procs - scheduled_procs
     if missing:
         errors.append(f"Missing processes: {missing}")
 
-    # 5. Check crew 1 only
+    # 5. Crew 1 only
     for op in result.operations:
         if op.equipment.crew != 1:
             errors.append(f"Equipment {op.equipment.equipment_id} is not from Crew 1")
 
-    # 6. Check process has all required equipment types
+    # 6. Required equipment types
     for proc in preprocessor.expanded_processes:
         ops_for_proc = [op for op in result.operations if op.process.expanded_id == proc.expanded_id]
         if not ops_for_proc:

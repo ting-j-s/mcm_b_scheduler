@@ -171,13 +171,79 @@ class CpModelBuilderV4:
 
                 self.model.Add(sum(selectors) == 1)
 
+        # 4. Exactly one equipment per required type per process
+        for proc in self.processes:
+            pid = proc.expanded_id
+            for req in proc.requirements:
+                eq_type = req.equipment_type
+
+                selectors = []
+
+                # Real equipment selectors
+                for eq in self.equipment_by_type.get(eq_type, []):
+                    selectors.append(self._real_select[(pid, eq.equipment_id)])
+
+                # Potential equipment selectors
+                for crew in [1, 2]:
+                    for idx in range(self._max_potential.get(eq_type, {}).get(crew, 0)):
+                        selectors.append(self._pot_select[(pid, eq_type, crew, idx)])
+
+                self.model.Add(sum(selectors) == 1)
+
         # 5. Assignment implies buy (pot_sel <= buy) for potential equipment
         for (pid, eq_type, crew, idx), sel_var in self._pot_select.items():
             buy_var = self._buy_vars.get((eq_type, crew, idx))
             if buy_var is not None:
                 self.model.Add(sel_var <= buy_var)
 
-        # 6. Budget constraint: sum(price * buy) <= 500000
+        # 6. Selected real equipment: start = proc_start, end = start + proc_time
+        #    Unselected real equipment: start = 0, end = 0
+        for proc in self.processes:
+            pid = proc.expanded_id
+            for req in proc.requirements:
+                eq_type = req.equipment_type
+                proc_time = calculate_processing_time(proc.workload, req.efficiency)
+
+                for eq in self.equipment_by_type.get(eq_type, []):
+                    sel = self._real_select[(pid, eq.equipment_id)]
+                    start = self._real_start[(pid, eq.equipment_id)]
+                    end = self._real_end[(pid, eq.equipment_id)]
+
+                    c1 = self.model.Add(start == self._proc_start[pid])
+                    c1.OnlyEnforceIf(sel)
+                    c2 = self.model.Add(end == start + proc_time)
+                    c2.OnlyEnforceIf(sel)
+
+                    c3 = self.model.Add(start == 0)
+                    c3.OnlyEnforceIf(sel.Not())
+                    c4 = self.model.Add(end == 0)
+                    c4.OnlyEnforceIf(sel.Not())
+
+        # 7. Selected potential equipment: start = proc_start, end = start + proc_time
+        #    Unselected potential equipment: start = 0, end = 0
+        for proc in self.processes:
+            pid = proc.expanded_id
+            for req in proc.requirements:
+                eq_type = req.equipment_type
+                proc_time = calculate_processing_time(proc.workload, req.efficiency)
+
+                for crew in [1, 2]:
+                    for idx in range(self._max_potential.get(eq_type, {}).get(crew, 0)):
+                        sel = self._pot_select[(pid, eq_type, crew, idx)]
+                        start = self._pot_start[(pid, eq_type, crew, idx)]
+                        end = self._pot_end[(pid, eq_type, crew, idx)]
+
+                        c1 = self.model.Add(start == self._proc_start[pid])
+                        c1.OnlyEnforceIf(sel)
+                        c2 = self.model.Add(end == start + proc_time)
+                        c2.OnlyEnforceIf(sel)
+
+                        c3 = self.model.Add(start == 0)
+                        c3.OnlyEnforceIf(sel.Not())
+                        c4 = self.model.Add(end == 0)
+                        c4.OnlyEnforceIf(sel.Not())
+
+        # 8. Budget constraint: sum(price * buy) <= 500000
         # Use integer price to avoid FloatAffine comparison issue
         price_terms = []
         for et in self._max_potential:
@@ -188,7 +254,7 @@ class CpModelBuilderV4:
 
         self.model.Add(sum(price_terms) <= 500000)
 
-        # 7. Process end = max of all equipment ends (for ALL requirement types)
+        # 9. Process end = max of all equipment ends (for ALL requirement types)
         for proc in self.processes:
             pid = proc.expanded_id
             equip_ends = []
@@ -212,7 +278,7 @@ class CpModelBuilderV4:
             if equip_ends:
                 self.model.AddMaxEquality(self._proc_end[pid], equip_ends)
 
-        # 8. Process start = min of all equipment starts (for ALL requirement types)
+        # 10. Process start = min of all equipment starts (for ALL requirement types)
         for proc in self.processes:
             pid = proc.expanded_id
             equip_starts = []
@@ -236,7 +302,116 @@ class CpModelBuilderV4:
             if equip_starts:
                 self.model.AddMinEquality(self._proc_start[pid], equip_starts)
 
-        # 9. Precedence constraints within each workshop
+        # 11. Initial transport for real equipment: starts at crew location
+        for proc in self.processes:
+            pid = proc.expanded_id
+            for req in proc.requirements:
+                eq_type = req.equipment_type
+
+                for eq in self.equipment_by_type.get(eq_type, []):
+                    key = (pid, eq.equipment_id)
+                    sel = self._real_select[key]
+                    start = self._real_start[key]
+                    workshop = proc.workshop
+
+                    transport = self.get_transport_time(eq.crew, workshop, eq.speed_mps)
+                    c = self.model.Add(start >= transport)
+                    c.OnlyEnforceIf(sel)
+
+        # 12. Initial transport for potential equipment: starts at crew location
+        for proc in self.processes:
+            pid = proc.expanded_id
+            for req in proc.requirements:
+                eq_type = req.equipment_type
+
+                for crew in [1, 2]:
+                    for idx in range(self._max_potential.get(eq_type, {}).get(crew, 0)):
+                        key = (pid, eq_type, crew, idx)
+                        sel = self._pot_select[key]
+                        start = self._pot_start[key]
+                        workshop = proc.workshop
+
+                        transport = self.get_transport_time(crew, workshop,
+                            self.equipment[0].speed_mps if self.equipment else 1.0)
+                        c = self.model.Add(start >= transport)
+                        c.OnlyEnforceIf(sel)
+
+        # 13. Disjunctive transport constraints for real equipment
+        for eq in self.equipment:
+            eq_candidates = []
+            for proc in self.processes:
+                pid = proc.expanded_id
+                key = (pid, eq.equipment_id)
+                if key in self._real_select:
+                    eq_candidates.append((pid, proc))
+
+            for i in range(len(eq_candidates)):
+                for j in range(i + 1, len(eq_candidates)):
+                    pid_i, proc_i = eq_candidates[i]
+                    pid_j, proc_j = eq_candidates[j]
+
+                    sel_i = self._real_select[(pid_i, eq.equipment_id)]
+                    sel_j = self._real_select[(pid_j, eq.equipment_id)]
+                    start_i = self._real_start[(pid_i, eq.equipment_id)]
+                    end_i = self._real_end[(pid_i, eq.equipment_id)]
+                    start_j = self._real_start[(pid_j, eq.equipment_id)]
+                    end_j = self._real_end[(pid_j, eq.equipment_id)]
+
+                    travel_ij = self.get_transport_time(eq.crew, proc_i.workshop, eq.speed_mps)
+                    travel_ji = self.get_transport_time(eq.crew, proc_j.workshop, eq.speed_mps)
+
+                    i_before_j = self.model.NewBoolVar(f'i_before_j_{pid_i}_{pid_j}_{eq.equipment_id}')
+
+                    c_ij = self.model.Add(start_j >= end_i + travel_ij)
+                    c_ij.OnlyEnforceIf(i_before_j)
+                    c_ji = self.model.Add(start_i >= end_j + travel_ji)
+                    c_ji.OnlyEnforceIf(i_before_j.Not())
+
+                    c_ij.OnlyEnforceIf(sel_i)
+                    c_ij.OnlyEnforceIf(sel_j)
+                    c_ji.OnlyEnforceIf(sel_i)
+                    c_ji.OnlyEnforceIf(sel_j)
+
+        # 14. Disjunctive transport constraints for potential equipment
+        for et in self._max_potential:
+            for crew in [1, 2]:
+                for idx in range(self._max_potential[et][crew]):
+                    pot_candidates = []
+                    for proc in self.processes:
+                        pid = proc.expanded_id
+                        key = (pid, et, crew, idx)
+                        if key in self._pot_select:
+                            pot_candidates.append((pid, proc))
+
+                    for i in range(len(pot_candidates)):
+                        for j in range(i + 1, len(pot_candidates)):
+                            pid_i, proc_i = pot_candidates[i]
+                            pid_j, proc_j = pot_candidates[j]
+
+                            sel_i = self._pot_select[(pid_i, et, crew, idx)]
+                            sel_j = self._pot_select[(pid_j, et, crew, idx)]
+                            start_i = self._pot_start[(pid_i, et, crew, idx)]
+                            end_i = self._pot_end[(pid_i, et, crew, idx)]
+                            start_j = self._pot_start[(pid_j, et, crew, idx)]
+                            end_j = self._pot_end[(pid_j, et, crew, idx)]
+
+                            speed = self.equipment[0].speed_mps if self.equipment else 1.0
+                            travel_ij = self.get_transport_time(crew, proc_i.workshop, speed)
+                            travel_ji = self.get_transport_time(crew, proc_j.workshop, speed)
+
+                            i_before_j = self.model.NewBoolVar(f'pot_i_before_j_{pid_i}_{pid_j}_{et.name}_{crew}_{idx}')
+
+                            c_ij = self.model.Add(start_j >= end_i + travel_ij)
+                            c_ij.OnlyEnforceIf(i_before_j)
+                            c_ji = self.model.Add(start_i >= end_j + travel_ji)
+                            c_ji.OnlyEnforceIf(i_before_j.Not())
+
+                            c_ij.OnlyEnforceIf(sel_i)
+                            c_ij.OnlyEnforceIf(sel_j)
+                            c_ji.OnlyEnforceIf(sel_i)
+                            c_ji.OnlyEnforceIf(sel_j)
+
+        # 15. Precedence constraints within each workshop
         for ws in self.workshops:
             ws_procs = self.process_order.get(ws, [])
             for i in range(len(ws_procs) - 1):
@@ -244,30 +419,7 @@ class CpModelBuilderV4:
                 next_pid = ws_procs[i + 1]
                 self.model.Add(self._proc_end[curr_pid] <= self._proc_start[next_pid])
 
-        # 10. No overlap per equipment (existing equipment only)
-        for eq_type, eq_list in self.equipment_by_type.items():
-            for eq in eq_list:
-                intervals = []
-                for proc in self.processes:
-                    pid = proc.expanded_id
-                    key = (pid, eq.equipment_id)
-                    if key in self._real_intervals:
-                        intervals.append(self._real_intervals[key])
-
-                if len(intervals) > 1:
-                    self.model.AddNoOverlap(intervals)
-
-        # 11. No overlap per potential equipment (across same (et, crew, idx))
-        # Group potential intervals by (et, crew, idx)
-        pot_by_slot: Dict[Tuple[EquipmentType, int, int], List] = defaultdict(list)
-        for (pid, eq_type, crew, idx), interval in self._pot_intervals.items():
-            pot_by_slot[(eq_type, crew, idx)].append(interval)
-
-        for slot_key, intervals in pot_by_slot.items():
-            if len(intervals) > 1:
-                self.model.AddNoOverlap(intervals)
-
-        # 12. Objective: minimize makespan
+        # 16. Objective: minimize makespan
         all_ends = [self._proc_end[proc.expanded_id] for proc in self.processes]
         self._makespan = self.model.NewIntVar(0, max_time, 'makespan')
         self.model.AddMaxEquality(self._makespan, all_ends)
@@ -438,7 +590,7 @@ def validate_problem_4(
             if next_start < curr_end:
                 errors.append(f"Workshop {ws}: {curr} ends at {curr_end} but {next_proc} starts at {next_start}")
 
-    # 4. Equipment no overlap
+    # 4. Equipment no overlap with transport
     equip_ops: Dict[str, List[ScheduledOperation]] = defaultdict(list)
     for op in result.operations:
         equip_ops[op.equipment.equipment_id].append(op)
@@ -448,8 +600,24 @@ def validate_problem_4(
         for i in range(len(ops_sorted) - 1):
             curr = ops_sorted[i]
             next_op = ops_sorted[i + 1]
-            if next_op.start_time < curr.end_time - 1:
-                errors.append(f"Equipment {eq_id}: overlap")
+
+            if distance_func:
+                travel = calculate_transport_time(
+                    distance_func(curr.process.workshop, next_op.process.workshop),
+                    curr.equipment.speed_mps
+                )
+                expected = curr.end_time + travel
+                if next_op.start_time < expected - 1:
+                    errors.append(
+                        f"Equipment {eq_id}: {curr.process.expanded_id} ends at {curr.end_time} "
+                        f"+ travel {travel} = {expected}, but {next_op.process.expanded_id} starts at {next_op.start_time}"
+                    )
+            else:
+                if next_op.start_time < curr.end_time - 1:
+                    errors.append(
+                        f"Equipment {eq_id}: overlap - {curr.process.expanded_id} ends at {curr.end_time} "
+                        f"but {next_op.process.expanded_id} starts at {next_op.start_time}"
+                    )
 
     # 5. All processes scheduled
     scheduled = {op.process.expanded_id for op in result.operations}
