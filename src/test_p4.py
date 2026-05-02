@@ -51,7 +51,8 @@ def main():
     print("\n校验:")
     is_valid, errors = validate_problem_4(
         result, purchases, total_cost,
-        preprocessor, loader.unit_prices, budget=500000.0
+        preprocessor, loader.unit_prices, budget=500000.0,
+        distance_func=loader.get_distance
     )
     if is_valid:
         print("  ✓ 校验通过")

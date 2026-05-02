@@ -82,6 +82,12 @@ class CpModelBuilderV4:
 
         self.crew_locations = {1: "Crew 1", 2: "Crew 2"}
 
+        # Build speed by equipment type from existing equipment
+        self.speed_by_type: Dict[EquipmentType, float] = {}
+        for eq in self.equipment:
+            if eq.equipment_type not in self.speed_by_type:
+                self.speed_by_type[eq.equipment_type] = eq.speed_mps
+
     def get_transport_time(self, from_crew: int, to_workshop: str, speed: float) -> int:
         from_loc = self.crew_locations[from_crew]
         dist = self.distance_func(from_loc, to_workshop)
@@ -151,25 +157,6 @@ class CpModelBuilderV4:
                             f'pot_interval_{pid}_{eq_type.name}_{crew}_{idx}'
                         )
                         self._pot_intervals[(pid, eq_type, crew, idx)] = interval
-
-        # 4. Exactly one equipment per required type per process
-        for proc in self.processes:
-            pid = proc.expanded_id
-            for req in proc.requirements:
-                eq_type = req.equipment_type
-
-                selectors = []
-
-                # Real equipment selectors
-                for eq in self.equipment_by_type.get(eq_type, []):
-                    selectors.append(self._real_select[(pid, eq.equipment_id)])
-
-                # Potential equipment selectors
-                for crew in [1, 2]:
-                    for idx in range(self._max_potential.get(eq_type, {}).get(crew, 0)):
-                        selectors.append(self._pot_select[(pid, eq_type, crew, idx)])
-
-                self.model.Add(sum(selectors) == 1)
 
         # 4. Exactly one equipment per required type per process
         for proc in self.processes:
@@ -335,8 +322,14 @@ class CpModelBuilderV4:
                     start_j = self._real_start[(pid_j, eq.equipment_id)]
                     end_j = self._real_end[(pid_j, eq.equipment_id)]
 
-                    travel_ij = self.get_transport_time(eq.crew, proc_i.workshop, eq.speed_mps)
-                    travel_ji = self.get_transport_time(eq.crew, proc_j.workshop, eq.speed_mps)
+                    travel_ij = calculate_transport_time(
+                        self.distance_func(proc_i.workshop, proc_j.workshop),
+                        eq.speed_mps
+                    )
+                    travel_ji = calculate_transport_time(
+                        self.distance_func(proc_j.workshop, proc_i.workshop),
+                        eq.speed_mps
+                    )
 
                     i_before_j = self.model.NewBoolVar(f'i_before_j_{pid_i}_{pid_j}_{eq.equipment_id}')
 
@@ -373,9 +366,15 @@ class CpModelBuilderV4:
                             start_j = self._pot_start[(pid_j, et, crew, idx)]
                             end_j = self._pot_end[(pid_j, et, crew, idx)]
 
-                            speed = self.equipment[0].speed_mps if self.equipment else 1.0
-                            travel_ij = self.get_transport_time(crew, proc_i.workshop, speed)
-                            travel_ji = self.get_transport_time(crew, proc_j.workshop, speed)
+                            speed = self.speed_by_type[et]
+                            travel_ij = calculate_transport_time(
+                                self.distance_func(proc_i.workshop, proc_j.workshop),
+                                speed
+                            )
+                            travel_ji = calculate_transport_time(
+                                self.distance_func(proc_j.workshop, proc_i.workshop),
+                                speed
+                            )
 
                             i_before_j = self.model.NewBoolVar(f'pot_i_before_j_{pid_i}_{pid_j}_{et.name}_{crew}_{idx}')
 
@@ -462,7 +461,7 @@ class CpModelBuilderV4:
                                 equipment_id=f"New_{eq_type.name}_{crew}_{idx}",
                                 equipment_type=eq_type,
                                 crew=crew,
-                                speed_mps=self.equipment[0].speed_mps if self.equipment else 1.0,  # use existing speed
+                                speed_mps=self.speed_by_type[eq_type],
                                 unit_price=self.unit_prices[eq_type]
                             )
 
@@ -539,7 +538,8 @@ def validate_problem_4(
     total_cost: float,
     preprocessor: Preprocessor,
     unit_prices: Dict[EquipmentType, float],
-    budget: float = 500000.0
+    budget: float = 500000.0,
+    distance_func=None
 ) -> Tuple[bool, List[str]]:
     """Validate Problem 4 solution."""
     from collections import defaultdict

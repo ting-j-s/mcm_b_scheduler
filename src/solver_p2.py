@@ -231,19 +231,6 @@ class CpModelBuilderV2:
                 next_pid = ws_procs[i + 1]
                 self.model.Add(self._proc_end[curr_pid] <= self._proc_start[next_pid])
 
-        # 9. No overlap per equipment (optional intervals)
-        for eq_type, eq_list in self.equipment_by_type.items():
-            for eq in eq_list:
-                intervals = []
-                for proc in self.processes:
-                    pid = proc.expanded_id
-                    key = (pid, eq.equipment_id)
-                    if key in self._intervals:
-                        intervals.append(self._intervals[key])
-
-                if len(intervals) > 1:
-                    self.model.AddNoOverlap(intervals)
-
         # 10. Objective
         all_ends = [self._proc_end[proc.expanded_id] for proc in self.processes]
         self._makespan = self.model.NewIntVar(0, max_time, 'makespan')

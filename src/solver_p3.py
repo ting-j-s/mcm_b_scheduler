@@ -198,8 +198,14 @@ class CpModelBuilderV3:
                     start_j = self._start_vars[(pid_j, eq.equipment_id)]
                     end_j = self._end_vars[(pid_j, eq.equipment_id)]
 
-                    travel_ij = self.get_transport_time(eq.crew, proc_i.workshop, eq.speed_mps)
-                    travel_ji = self.get_transport_time(eq.crew, proc_j.workshop, eq.speed_mps)
+                    travel_ij = calculate_transport_time(
+                        self.distance_func(proc_i.workshop, proc_j.workshop),
+                        eq.speed_mps
+                    )
+                    travel_ji = calculate_transport_time(
+                        self.distance_func(proc_j.workshop, proc_i.workshop),
+                        eq.speed_mps
+                    )
 
                     # bool_var: 1 = i before j, 0 = j before i
                     i_before_j = self.model.NewBoolVar(f'i_before_j_{pid_i}_{pid_j}_{eq.equipment_id}')
