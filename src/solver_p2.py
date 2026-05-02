@@ -135,20 +135,16 @@ class CpModelBuilderV2:
                     c4.OnlyEnforceIf(sel.Not())
 
         # 5. Process end = max of selected equipment ends
-        #    Process start = min of selected equipment starts
+        #    proc_start is independent - selected equipment start == proc_start via step 4
         for proc in self.processes:
             pid = proc.expanded_id
-            equip_starts = []
             equip_ends = []
             for req in proc.requirements:
                 eq_type = req.equipment_type
                 available_eq = self.equipment_by_type.get(eq_type, [])
                 for eq in available_eq:
-                    equip_starts.append(self._start_vars[(pid, eq.equipment_id)])
                     equip_ends.append(self._end_vars[(pid, eq.equipment_id)])
 
-            if equip_starts:
-                self.model.AddMinEquality(self._proc_start[pid], equip_starts)
             if equip_ends:
                 self.model.AddMaxEquality(self._proc_end[pid], equip_ends)
 

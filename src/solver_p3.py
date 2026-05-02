@@ -157,18 +157,7 @@ class CpModelBuilderV3:
             if equip_ends:
                 self.model.AddMaxEquality(self._proc_end[pid], equip_ends)
 
-        # 5b. Process start = min of all equipment starts
-        for proc in self.processes:
-            pid = proc.expanded_id
-            equip_starts = []
-            for req in proc.requirements:
-                eq_type = req.equipment_type
-                available_eq = self.equipment_by_type.get(eq_type, [])
-                for eq in available_eq:
-                    equip_starts.append(self._start_vars[(pid, eq.equipment_id)])
-
-            if equip_starts:
-                self.model.AddMinEquality(self._proc_start[pid], equip_starts)
+        # 5b. proc_start is independent - selected equipment start == proc_start via step 4
 
         # 6. Initial transport: equipment starts at crew location
         for proc in self.processes:
