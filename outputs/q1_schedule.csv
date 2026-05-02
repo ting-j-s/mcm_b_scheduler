@@ -1,0 +1,6 @@
+﻿序号,设备编号,起始时间,结束时间,持续工作时间(s),工序编号
+1,Automated Conveying Arm1-4,200,4520,4320,A1
+2,Precision Filling Machine1-5,200,5600,5400,A1
+3,High-speed Polishing Machine1-1,5600,23600,18000,A2
+4,Industrial Cleaning Machine1-5,5600,12800,7200,A2
+5,Automatic Sensing Multi-Function Machine1-1,23600,41600,18000,A3
