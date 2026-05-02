@@ -32,11 +32,13 @@ class CpModelBuilderV1:
     def __init__(
         self,
         preprocessor: Preprocessor,
-        crew: int = 1
+        crew: int = 1,
+        distance_func=None
     ):
         self.preprocessor = preprocessor
         self.crew = crew
         self.workshop = 'A'
+        self._distance_func = distance_func
 
         # Filter processes for this workshop
         self.processes = [
@@ -135,7 +137,31 @@ class CpModelBuilderV1:
                 selectors = [self._select_vars[(pid, eq.equipment_id)] for eq in available_eq]
                 self.model.Add(sum(selectors) == 1)
 
-        # 4. Process end = max of all equipment ends for that process
+        # 4. Selected: start = proc_start, end = start + proc_time
+        #    Unselected: start = 0, end = 0
+        for proc in self.processes:
+            pid = proc.expanded_id
+            for req in proc.requirements:
+                eq_type = req.equipment_type
+                available_eq = self.equipment_by_type.get(eq_type, [])
+                proc_time = calculate_processing_time(proc.workload, req.efficiency)
+
+                for eq in available_eq:
+                    sel = self._select_vars[(pid, eq.equipment_id)]
+                    start = self._start_vars[(pid, eq.equipment_id)]
+                    end = self._end_vars[(pid, eq.equipment_id)]
+
+                    c1 = self.model.Add(start == self._proc_start[pid])
+                    c1.OnlyEnforceIf(sel)
+                    c2 = self.model.Add(end == start + proc_time)
+                    c2.OnlyEnforceIf(sel)
+
+                    c3 = self.model.Add(start == 0)
+                    c3.OnlyEnforceIf(sel.Not())
+                    c4 = self.model.Add(end == 0)
+                    c4.OnlyEnforceIf(sel.Not())
+
+        # 5. Process end = max of selected equipment ends
         for proc in self.processes:
             pid = proc.expanded_id
             equip_ends = []
@@ -148,42 +174,68 @@ class CpModelBuilderV1:
             if equip_ends:
                 self.model.AddMaxEquality(self._proc_end[pid], equip_ends)
 
-            # Process start = min of all equipment starts
-            equip_starts = []
-            for req in proc.requirements:
-                eq_type = req.equipment_type
-                available_eq = self.equipment_by_type.get(eq_type, [])
-                for eq in available_eq:
-                    equip_starts.append(self._start_vars[(pid, eq.equipment_id)])
+        # 6. Initial transport: equipment starts at crew location
+        for eq in self.equipment:
+            for proc in self.processes:
+                pid = proc.expanded_id
+                key = (pid, eq.equipment_id)
+                if key not in self._select_vars:
+                    continue
 
-            if equip_starts:
-                self.model.AddMinEquality(self._proc_start[pid], equip_starts)
+                sel = self._select_vars[key]
+                start = self._start_vars[key]
 
-        # 5. Precedence constraints: A1 -> A2 -> A3
+                # All A workshop processes: distance from Crew 1 to A
+                dist = self._distance_func(f"Crew {self.crew}", self.workshop)
+                transport = calculate_transport_time(dist, eq.speed_mps)
+
+                c = self.model.Add(start >= transport)
+                c.OnlyEnforceIf(sel)
+
+        # 7. Disjunctive transport constraints for each pair on same equipment
+        for eq in self.equipment:
+            eq_candidates = []
+            for proc in self.processes:
+                pid = proc.expanded_id
+                key = (pid, eq.equipment_id)
+                if key in self._select_vars:
+                    eq_candidates.append((pid, proc))
+
+            for i in range(len(eq_candidates)):
+                for j in range(i + 1, len(eq_candidates)):
+                    pid_i, proc_i = eq_candidates[i]
+                    pid_j, proc_j = eq_candidates[j]
+
+                    sel_i = self._select_vars[(pid_i, eq.equipment_id)]
+                    sel_j = self._select_vars[(pid_j, eq.equipment_id)]
+                    start_i = self._start_vars[(pid_i, eq.equipment_id)]
+                    end_i = self._end_vars[(pid_i, eq.equipment_id)]
+                    start_j = self._start_vars[(pid_j, eq.equipment_id)]
+                    end_j = self._end_vars[(pid_j, eq.equipment_id)]
+
+                    # Same workshop A -> A: transport = 0
+                    travel_ij = 0
+                    travel_ji = 0
+
+                    i_before_j = self.model.NewBoolVar(f'i_before_j_{pid_i}_{pid_j}_{eq.equipment_id}')
+
+                    c_ij = self.model.Add(start_j >= end_i + travel_ij)
+                    c_ij.OnlyEnforceIf(i_before_j)
+                    c_ji = self.model.Add(start_i >= end_j + travel_ji)
+                    c_ji.OnlyEnforceIf(i_before_j.Not())
+
+                    c_ij.OnlyEnforceIf(sel_i)
+                    c_ij.OnlyEnforceIf(sel_j)
+                    c_ji.OnlyEnforceIf(sel_i)
+                    c_ji.OnlyEnforceIf(sel_j)
+
+        # 8. Precedence: A1 -> A2 -> A3
         for i in range(len(self.processes) - 1):
             curr_proc = self.processes[i]
             next_proc = self.processes[i + 1]
             self.model.Add(self._proc_end[curr_proc.expanded_id] <= self._proc_start[next_proc.expanded_id])
 
-        # 6. No overlap per equipment
-        for eq_type, eq_list in self.equipment_by_type.items():
-            for eq in eq_list:
-                intervals = []
-                for proc in self.processes:
-                    pid = proc.expanded_id
-                    key = (pid, eq.equipment_id)
-                    if key in self._intervals:
-                        intervals.append(self._intervals[key])
-
-                if len(intervals) > 1:
-                    self.model.AddNoOverlap(intervals)
-
-        # 7. Initial transport time from Crew to workshop A
-        # For first operation of each equipment type, add transport time
-        # Get distance from Crew to workshop A
-        # (handled separately in solution extraction)
-
-        # 8. Objective: minimize makespan
+        # 9. Objective: minimize makespan
         all_ends = [self._proc_end[proc.expanded_id] for proc in self.processes]
         self._makespan = self.model.NewIntVar(0, max_time, 'makespan')
         self.model.AddMaxEquality(self._makespan, all_ends)
@@ -238,7 +290,7 @@ def solve_problem_1(preprocessor: Preprocessor, distance_func=None) -> ScheduleR
     Returns:
         ScheduleResult with makespan and operations
     """
-    builder = CpModelBuilderV1(preprocessor, crew=1)
+    builder = CpModelBuilderV1(preprocessor, crew=1, distance_func=distance_func)
     model = builder.build_model()
 
     solver = CpSolver()
@@ -252,100 +304,48 @@ def solve_problem_1(preprocessor: Preprocessor, distance_func=None) -> ScheduleR
 
     result = builder.get_solution(solver)
 
-    # Add transport times and update makespan
-    if distance_func:
-        result = add_initial_transport_times(result, distance_func, crew=1)
-        # Update makespan - end_time already includes transport shift
-        max_end = max(op.end_time for op in result.operations)
-        result.makespan = max_end
+    max_end = max(op.end_time for op in result.operations)
+    result.makespan = max_end
 
     return result
 
 
-def add_initial_transport_times(result: ScheduleResult, distance_func, crew: int = 1) -> ScheduleResult:
-    """Add initial transport times from Crew to first workshop.
-
-    Transport time is added to the first operation of each equipment,
-    shifting the operation's start and end times.
-    """
-    crew_loc = f"Crew {crew}"
-
-    # Group operations by equipment
-    from collections import defaultdict
-    equip_ops: Dict[str, List[ScheduledOperation]] = defaultdict(list)
-    for op in result.operations:
-        equip_ops[op.equipment.equipment_id].append(op)
-
-    # For each equipment, shift first operation by transport time
-    for eq_id, ops in equip_ops.items():
-        # Sort by start time
-        ops_sorted = sorted(ops, key=lambda x: x.start_time)
-
-        # First operation gets initial transport
-        first_op = ops_sorted[0]
-        workshop = first_op.process.workshop
-
-        try:
-            dist = distance_func(crew_loc, workshop)
-            transport = calculate_transport_time(dist, first_op.equipment.speed_mps)
-            first_op.transport_time = transport
-            # Shift operation times by transport
-            first_op.start_time += transport
-            first_op.end_time += transport
-        except:
-            first_op.transport_time = 0
-
-    return result
-
-
-def validate_problem_1(result: ScheduleResult, preprocessor: Preprocessor) -> Tuple[bool, List[str]]:
+def validate_problem_1(result: ScheduleResult, preprocessor: Preprocessor, distance_func=None) -> Tuple[bool, List[str]]:
     """
     Validate Problem 1 solution.
 
-    Returns:
-        (is_valid, error_messages)
+    Checks:
+    1. A1 -> A2 -> A3 precedence
+    2. Each process has all required equipment types
+    3. No equipment overlap (with same-workshop transport=0)
+    4. Crew 1 only
+    5. Initial transport for first operation of each equipment
+    6. Process end = max of its equipment ends
     """
+    from collections import defaultdict
+
     errors = []
+
+    # Build process-level times
+    process_times = defaultdict(lambda: {"start": float('inf'), "end": 0, "ops": []})
+    for op in result.operations:
+        pid = op.process.expanded_id
+        process_times[pid]["start"] = min(process_times[pid]["start"], op.start_time)
+        process_times[pid]["end"] = max(process_times[pid]["end"], op.end_time)
+        process_times[pid]["ops"].append(op)
 
     # 1. Check A1 -> A2 -> A3 precedence
     proc_order = ['A1', 'A2', 'A3']
-    proc_end_times = {}
-
-    for op in result.operations:
-        pid = op.process.expanded_id
-        if pid not in proc_end_times or op.end_time > proc_end_times[pid]:
-            proc_end_times[pid] = op.end_time
-
     for i in range(len(proc_order) - 1):
         curr = proc_order[i]
         next_proc = proc_order[i + 1]
-        if curr in proc_end_times and next_proc in proc_end_times:
-            if proc_end_times[curr] > result.operations[0].start_time:  # This is rough
-                pass  # Need better check
+        if curr in process_times and next_proc in process_times:
+            curr_end = process_times[curr]["end"]
+            next_start = process_times[next_proc]["start"]
+            if next_start < curr_end:
+                errors.append(f"A1->A2->A3: {curr} ends at {curr_end} but {next_proc} starts at {next_start}")
 
-    # Actually check properly
-    a1_end = None
-    a2_end = None
-    a3_end = None
-
-    for op in result.operations:
-        if op.process.expanded_id == 'A1':
-            a1_end = max(a1_end or 0, op.end_time)
-        elif op.process.expanded_id == 'A2':
-            a2_end = max(a2_end or 0, op.end_time)
-        elif op.process.expanded_id == 'A3':
-            a3_end = max(a3_end or 0, op.end_time)
-
-    if a1_end is not None and a2_end is not None:
-        if a1_end > a2_end:
-            errors.append(f"A1 ({a1_end}) must finish before A2 starts ({a2_end})")
-
-    if a2_end is not None and a3_end is not None:
-        if a2_end > a3_end:
-            errors.append(f"A2 ({a2_end}) must finish before A3 starts ({a3_end})")
-
-    # 2. Check no equipment overlap
-    from collections import defaultdict
+    # 2. Check equipment no overlap with transport
     equip_ops: Dict[str, List[ScheduledOperation]] = defaultdict(list)
     for op in result.operations:
         equip_ops[op.equipment.equipment_id].append(op)
@@ -355,27 +355,51 @@ def validate_problem_1(result: ScheduleResult, preprocessor: Preprocessor) -> Tu
         for i in range(len(ops_sorted) - 1):
             curr = ops_sorted[i]
             next_op = ops_sorted[i + 1]
-            if curr.end_time > next_op.start_time:
-                errors.append(f"Equipment {eq_id} overlap: ends at {curr.end_time} but next starts at {next_op.start_time}")
+            # Same workshop A -> A: transport = 0
+            if next_op.start_time < curr.end_time - 1:
+                errors.append(
+                    f"Equipment {eq_id}: overlap - {curr.process.expanded_id} ends at {curr.end_time} "
+                    f"but {next_op.process.expanded_id} starts at {next_op.start_time}"
+                )
 
-    # 3. Check all processes have equipment
-    a_procs = {'A1', 'A2', 'A3'}
-    for proc_id in a_procs:
-        ops_for_proc = [op for op in result.operations if op.process.expanded_id == proc_id]
-        if not ops_for_proc:
-            errors.append(f"Process {proc_id} has no operations")
-        else:
-            # Check all required equipment types are covered
-            proc = preprocessor.get_process_by_id(proc_id)
-            assigned_types = {op.equipment.equipment_type for op in ops_for_proc}
-            required_types = {req.equipment_type for req in proc.requirements}
-            if assigned_types != required_types:
-                errors.append(f"Process {proc_id} missing equipment types: {required_types - assigned_types}")
+    # 3. Check all processes have all required equipment types
+    for pid in ['A1', 'A2', 'A3']:
+        if pid not in process_times:
+            errors.append(f"Process {pid} has no operations")
+            continue
+        ops = process_times[pid]["ops"]
+        assigned_types = {op.equipment.equipment_type for op in ops}
+        proc = preprocessor.get_process_by_id(pid)
+        required_types = {req.equipment_type for req in proc.requirements}
+        if assigned_types != required_types:
+            errors.append(f"Process {pid} missing types: {required_types - assigned_types}")
 
     # 4. Check crew 1 only
     for op in result.operations:
         if op.equipment.crew != 1:
             errors.append(f"Equipment {op.equipment.equipment_id} is not from Crew 1")
+
+    # 5. Initial transport: first operation of each equipment
+    for eq_id, ops in equip_ops.items():
+        first = sorted(ops, key=lambda x: x.start_time)[0]
+        crew_loc = "Crew 1"
+        if distance_func:
+            try:
+                dist = distance_func(crew_loc, first.process.workshop)
+                required = calculate_transport_time(dist, first.equipment.speed_mps)
+                if first.start_time < required:
+                    errors.append(
+                        f"{eq_id}: first op {first.process.expanded_id} starts at {first.start_time}, "
+                        f"but initial transport requires {required}"
+                    )
+            except:
+                pass
+
+    # 6. Process end = max of its equipment ends
+    for pid, info in process_times.items():
+        max_end_from_ops = max(op.end_time for op in info["ops"])
+        if info["end"] != max_end_from_ops:
+            errors.append(f"Process {pid}: recorded end={info['end']} but max equipment end={max_end_from_ops}")
 
     is_valid = len(errors) == 0
     return is_valid, errors

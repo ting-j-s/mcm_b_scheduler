@@ -45,7 +45,7 @@ def main():
 
     # Validate
     print("\n校验:")
-    is_valid, errors = validate_problem_1(result, preprocessor)
+    is_valid, errors = validate_problem_1(result, preprocessor, distance_func=loader.get_distance)
     if is_valid:
         print("  ✓ 校验通过")
     else:
