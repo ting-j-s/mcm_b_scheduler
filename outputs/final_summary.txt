@@ -5,7 +5,7 @@ Q1 makespan: 41600 秒 (11:33:20)
 Q2 makespan: 163764 秒 (45:29:24)
 Q3 makespan: 123844 秒 (34:24:04)
 Q4 makespan: 123844 秒 (34:24:04)
-Q4 purchase cost: 465000 元
+Q4 purchase cost: 445000 元
 
 校验状态:
   Problem 1: 通过
