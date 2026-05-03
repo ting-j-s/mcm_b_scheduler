@@ -1,0 +1,58 @@
+============================================================
+公式转换报告
+============================================================
+
+【1】文件: paper_final_all_equations.docx (46871 bytes)
+
+【2】OMML公式数量: 15
+  （共15个独立居中公式，均已正确转换为Word可编辑OMML公式对象）
+
+【3】已转换的公式列表
+   1. d_{p,k}=\left\lceil \frac{q_p}{v_{p,k}}\times 3600 \right\rceil
+   2. \tau_{i,j,e}=\left\lceil \frac{D_{i,j}}{u_e} \right\rceil
+   3. \sum_{e\in E_{k,g}} sel_{p,e}=1,\quad \forall p\in P,\ \forall k\in R(
+   4. sel_{p,e}=1:\quad start_{p,e}=s_p,\ \ end_{p,e}=start_{p,e}+d_{p,k(e)}
+   5. sel_{p,e}=0:\quad start_{p,e}=0,\ end_{p,e}=0
+   6. C_p=\max_{k\in R(p)}\max_{e\in selected(p,k)}end_{p,e}
+   7. start_{p,e}\ge T_{init}(e,p)\quad OnlyEnforceIf(sel_{p,e}=1)
+   8. i\_before\_j=1\left(p_i\text{在前}\right):\ start_{p_j,e}\ge end_{p_i,e}
+   9. i\_before\_j=0\left(p_j\text{在前}\right):\ start_{p_i,e}\ge end_{p_j,e}
+  10. C_{p_i}\le s_{p_{i+1}},\quad \forall\text{同一车间内相邻展开工序}
+  11. \min T,\quad T=\max_{p\in P}C_p
+  12. N_{k,g}=\left\lfloor \frac{500000}{unit\_price(k)} \right\rfloor
+  13. sel_{p,(k,g,idx)}\le buy_{k,g,idx},\ \forall p,\ \forall(k,g,idx)
+  14. \sum_p sel_{p,(k,g,idx)}\ge buy_{k,g,idx},\ \forall(k,g,idx)
+  15. \sum_{k,g,idx}unit\_price(k)\times buy_{k,g,idx}\le 500000
+
+【4】符号说明表中的表达式说明
+  符号表中含 d_{p,k}=ceil(...)、tau_{i,j,e}=ceil(...) 等文本
+  这些是符号含义的文本描述（符号|含义格式），非独立公式
+  符号表采用文本格式便于对照查阅，不影响论文规范
+
+【5】公式空白检查: ✓ 无空白公式
+
+【6】禁止词检查
+  ✓ 495000元
+  ✓ 班组1新增2台，班组2新增7台
+  ✓ 班组2执行
+  ✓ 班组1共31次
+  ✓ 班组2共10次
+
+【7】关键数据检查
+  ✓ P4采购费用: 445000
+  ✓ 采购分配crew1: 班组1新增4台
+  ✓ 采购分配crew2: 班组2新增5台
+  ✓ 采购总台数: 9台
+  ✓ 关键工序: C5_3
+  ✓ C5_3执行设备: New_AUTOMATIC_SENSING_MULTI_FUNCTION_MACHINE_1_5
+  ✓ P3 crew1: 33次
+  ✓ P3 crew2: 8次
+
+【8】表号检查
+  ✓ 表4 问题四调度结果
+  ✓ 表5 问题四设备采购方案
+
+============================================================
+结论: 15个独立居中公式已成功转换为OMML公式对象
+符号表中的符号含义描述为文本格式，符合论文规范
+============================================================
